@@ -1,0 +1,90 @@
+# ─────────────────────────────────────────────────────────────
+# DevDNA — local development stack
+#   docker compose up -d mongodb   (infra)
+#   docker compose up --build      (full stack)
+# ─────────────────────────────────────────────────────────────
+
+services:
+  mongodb:
+    image: mongo:7
+    container_name: devdna-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  backend:
+    # Root context: npm workspaces lockfile + shared/types live at the repo root.
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: devdna-backend
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGO_URI: mongodb://mongodb:27017/devdna
+      CLIENT_ORIGIN: http://localhost:5173
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-me-access-secret}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-refresh-secret}
+      # Auth cookies (Phase 2 §9/§42): secure=true requires HTTPS. The local
+      # Docker stack serves plain HTTP, so default false here and override
+      # COOKIE_SECURE=true when deploying behind HTTPS.
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_SAME_SITE: ${COOKIE_SAME_SITE:-lax}
+      # Phase 3 — GitHub OAuth (set real values in the environment / .env)
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GITHUB_CALLBACK_URL: ${GITHUB_CALLBACK_URL:-http://localhost:5000/api/github/callback}
+      GITHUB_TOKEN_ENCRYPTION_KEY: ${GITHUB_TOKEN_ENCRYPTION_KEY:-change-me-token-encryption-key}
+      PYTHON_SERVICE_URL: http://python-service:8000
+      PYTHON_INTERNAL_KEY: ${PYTHON_INTERNAL_KEY:-change-me-internal-key}
+      AI_PROVIDER: ${AI_PROVIDER:-mock}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-gpt-4o-mini}
+      AI_MAX_TOKENS: ${AI_MAX_TOKENS:-500}
+      AI_TEMPERATURE: ${AI_TEMPERATURE:-0.2}
+      AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-30000}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+    ports:
+      - "5000:5000"
+
+  python-service:
+    build: ./intelligence
+    container_name: devdna-python
+    restart: unless-stopped
+    environment:
+      PYTHON_SERVICE_ENV: production
+      PYTHON_SERVICE_PORT: 8000
+      PYTHON_INTERNAL_KEY: ${PYTHON_INTERNAL_KEY:-change-me-internal-key}
+      PYTHON_CORS_ORIGINS: http://localhost:5173
+    ports:
+      - "8000:8000"
+
+  frontend:
+    # Root context: npm workspaces lockfile + shared/types live at the repo root.
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: devdna-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      VITE_API_URL: http://localhost:5000/api
+      VITE_SOCKET_URL: http://localhost:5000
+    ports:
+      - "5173:80"
+
+volumes:
+  mongo_data:

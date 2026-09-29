@@ -1,0 +1,14 @@
+# Keep secrets and heavy dirs out of the image build context.
+# Used by the root-context Dockerfiles for backend/ and frontend/.
+**/.env
+**/.env.*
+!.env.example
+**/node_modules
+**/dist
+**/.venv
+**/__pycache__
+**/.git
+**/.vscode
+**/.idea
+**/coverage
+*.log
